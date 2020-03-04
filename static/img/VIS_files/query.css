@@ -1,0 +1,75 @@
+@font-face{
+    font-family: satellite-bold;
+    src: url('../font/Satellite.otf');
+    font-weight: bold;
+}
+
+@font-face{
+    font-family: satellite;
+    src: url('../font/Satellite.otf');
+    font-weight: normal;
+}
+
+.container-input:before
+{
+     content: "";
+     position: absolute;
+     background:inherit;
+     -webkit-filter: blur(2px);
+     filter: blur(2px);
+     z-index: -2;
+}
+
+.container-input {
+    display: flex;
+    border-radius: 25px;
+    flex-direction: column;
+    position: relative;
+    width: 90%;
+    height: 80%;
+    top: 12.5%;
+    margin: 0 auto;
+    z-index: 0;
+    /*background-color:rgba(25, 25, 112, 0.8);*/
+    /*background-color: rgba(240,255,255,0.3)*/
+}
+
+.rgb-layer {
+    background-color: rgba(77,76,117,0.4);
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    position:absolute;
+    border-radius: 15px;
+}
+
+.input-place {
+    justify-content: center;
+    margin: 0 auto;
+    margin-top:10%;
+    width: 800px;
+}
+
+.music-thead {
+    background-color: rgba(0, 0, 205, 0.1);
+    color: #999999;
+    font-size: 30px;
+    border-radius: 60px;
+    border-color:#666666;
+}
+
+.music-thead tr th{
+    font-family: satellite-bold;
+}
+.music-table{
+    align-self: center;
+    margin-top: 1%;
+    width:95%;
+}
+
+.music-info{
+    font-size:20px;
+    color:#a1abff;
+    font-family: satellite;
+    border-color:rgba(173,216,230,0.5)!important;
+}

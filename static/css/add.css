@@ -1,0 +1,27 @@
+@font-face{
+    font-family: satellite-bold;
+    src: url('../font/Satellite.otf');
+    font-weight: bold;
+}
+
+@font-face{
+    font-family: satellite;
+    src: url('../font/Satellite.otf');
+    font-weight: normal;
+}
+
+.add-des{
+    font-family: neo;
+    align-self: center;
+    margin-top: 1%;
+    position: relative;
+    color:azure;
+    font-size:20px;
+}
+
+.input-place{
+    top:30%;
+}
+.format-des{
+    color:skyblue;
+}

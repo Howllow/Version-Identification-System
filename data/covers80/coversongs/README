@@ -1,0 +1,27 @@
+README for covers80 package
+
+This is a set of data and code to support the MIREX cover song 
+identification task.
+
+The directory covers32k/ contains 80 songs with two versions of 
+each, all encoded as 32 kbps MP3 (mono, 16k sampling, bandwidth 
+limited to 7 kHz).  The basis of this set was cover versions 
+I found within the uspop2002 set, but then I added a bunch of 
+others (including pairing up all the tracks I could on cover song 
+albums by Annie Lennox and Tori Amos).
+
+The directory src/ contains the current version of my coversongID
+code, which is very close to what I submitted to the MIREX2006 
+cover song task.  You can run it on the 32kbps covers80 tracks with 
+the script do_cover_expt.m.
+
+Please let me know if you have any problems or comments.
+
+-- Dan Ellis dpwe@ee.columbia.edu 2007-06-16
+
+CHANGELOG
+2007-08-08  Removed extra files
+  covers32k/Little_Wing/tesla+Five_Man_Acoustic_Jam+09-Lodi.mp3
+  covers32k/Lodi/eric_clapton+Crossroads_2_Disc_1+08-Little_Wing.mp3
+  .. and fixed covers32k/list2.txt which referred to these in the 
+     wrong drectories.

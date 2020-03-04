@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="../static/css/index.css">
+    <link rel="stylesheet" href="../static/css/query.css">
+    <link rel="shortcut icon" href="../static/img/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../static/css/fileinput.css">
+    <link rel="stylesheet" href="../static/css/audioplayer.css">
+	<script src="https://cdn.staticfile.org/jquery/2.1.1/jquery.min.js"></script>
+    <script src="https://cdn.staticfile.org/twitter-bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <script src="../static/js/fileinput.min.js"></script>
+    <script src="../static/js/audioplayer.js"></script>
+    <title>VIS</title>
+</head>
+
+<body>
+    <div class="bg">
+        <nav class="navbar navbar-transparent navbar-fixed-top">
+                <div class="container-nav">
+                    <img src="../static/img/logo.png" class="nav-logo" alt="">
+                    <div href="/index" class="welcome navbar-brand">Welcome to VIS</div>
+                    <ul class="nav navbar-nav navbar-right">
+                        <li class="navbar-text"><a href="/query"><b>Query</b></a></li>
+                        <li class="navbar-text"><a href="/add"><b>Add</b></a></li>
+                        <li class="navbar-text"><a href="/judge"><b>Judge</b></a></li>
+                    </ul>
+                </div>
+        </nav>
+
+        <div class="container-input">
+            <div class="rgb-layer"></div>
+            <table class="music-table table table-hover" style="display:none">
+                <thead class="music-thead">
+                    <tr>
+                        <th style="width:7.5%">Score</th>
+                        <th style="width:27%">Title</th>
+                        <th style="width:27%">Album</th>
+                        <th style="width:20%">Artist</th>
+                        <th style="width:18.5%"></th>
+                    </tr>
+                </thead>
+                <tbody class="music-items">
+                   <!-- <tr>
+                        <td class="music-info">0</td>
+                        <td class="music-info">ABC</td>
+                        <td class="music-info">DEFDOIFJO</td>
+                        <td class="music-info">SOIJDOIASJDIO</td>
+                        <td><audio src="/static/result/songs0.mp3" preload="auto"controls></audio></td>
+                    </tr> -->
+                </tbody>
+            </table>
+            <div class="input-place">
+                <div class="upload-wrap">
+                    <input type="file" id="inmusic">
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+<script>
+    // with plugin options
+    $("#inmusic").fileinput({
+        theme: "theme.min",
+        allowedFileTypes: 'audio',
+        required: true,
+        allowedFileExtensions: ['wav', 'mp4', 'mp3'],
+        uploadUrl: "http://localhost:5000/query",
+        maxFileCount: 1,
+        mergeAjaxCallbacks: true,
+        msgUploadThreshold:"File has been uploaded! Searching similar music...",
+        ajaxSettings: {
+            success: function(res) {
+                console.log(res);
+                if (res['stat'] != 0) {
+                    alert('error');
+                }
+                else {
+                    $(".input-place").css("display", "none");
+                    musics = res['music_list'];
+                    $(".music-table").css("display", "table");
+                    for (var i = 0; i < 10; i++) {
+                        var music_title = musics[i]['title'];
+                        var music_format = musics[i]['format'];
+                        var music_artist = musics[i]['artist'];
+                        var music_album = musics[i]['album'];
+                        var music_score = musics[i]['score'];
+                        var music_set = musics[i]['set'];
+                        var music_version = musics[i]['version']
+                        var music_item = document.createElement("tr");
+                        music_item.setAttribute("class", "music-item");
+                        music_item.setAttribute("id", "song" + i);
+                        music_item.innerHTML =
+                        "<td class = 'music-info'>" + music_score + "&#37;</td>" +
+                        "<td class = 'music-info'>" + music_title + "</td>" +
+                        "<td class = 'music-info'>" + music_album + "</td>" +
+                        "<td class = 'music-info'>" + music_artist + "</td>" +
+                        "<td class = 'music-info' style='font-size:small'><audio src = '/static/result/songs" +
+                        music_set + '_' + music_version + "." + music_format +
+                        "' preload='metadata' controls></audio></td>";
+                        $(".music-items").append(music_item);
+                    }
+                    var myscript = document.createElement("script");
+                    myscript.innerHTML = "$( function() { $( 'audio' ).audioPlayer(); } );";
+                    $(".music-items").append(myscript);
+
+
+                }
+            }
+        }
+    });
+</script>
+
+</html>
