@@ -1,5 +1,105 @@
 from scipy.special import binom
 from models import *
+from torch import Tensor
+from typing import Tuple
+from torch.nn import Parameter
+from torch.autograd import Variable
+import torch.nn.functional as F
+import warnings
+
+warnings.filterwarnings('ignore')
+
+
+def myphi(x, m):
+    x = x * m
+    return 1 - x ** 2 / math.factorial(2) + x ** 4 / math.factorial(4) - x ** 6 / math.factorial(6) + \
+           x ** 8 / math.factorial(8) - x ** 9 / math.factorial(9)
+
+
+class SphereFace(nn.Module):
+    def __init__(self, in_features, out_features, m=4, phiflag=True, gamma=0.0):
+        super(SphereFace, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(Tensor(in_features,out_features))
+        self.weight.data.uniform_(-1, 1).renorm_(2,1,1e-5).mul_(1e5)
+        self.phiflag = phiflag
+        self.m = m
+        self.gamma = gamma
+        self.mlambda = [
+            lambda x: x**0,
+            lambda x: x**1,
+            lambda x: 2*x**2-1,
+            lambda x: 4*x**3-3*x,
+            lambda x: 8*x**4-8*x**2+1,
+            lambda x: 16*x**5-20*x**3+5*x
+        ]
+
+    def forward(self, input, target):
+        x = input   # size=(B,F)    F is feature len
+        w = self.weight # size=(F,Classnum) F=in_features Classnum=out_features
+
+        ww = w.renorm(2,1,1e-5).mul(1e5)
+        xlen = x.pow(2).sum(1).pow(0.5) # size=B
+        wlen = ww.pow(2).sum(0).pow(0.5) # size=Classnum
+
+        cos_theta = x.mm(ww) # size=(B,Classnum)
+        cos_theta = cos_theta / xlen.view(-1,1) / wlen.view(1,-1)
+        cos_theta = cos_theta.clamp(-1,1)
+
+        if self.phiflag:
+            cos_m_theta = self.mlambda[self.m](cos_theta)
+            theta = torch.autograd.Variable(cos_theta.data.acos())
+            k = (self.m*theta/3.14159265).floor()
+            n_one = k*0.0 - 1
+            phi_theta = (n_one**k) * cos_m_theta - 2*k
+        else:
+            theta = cos_theta.acos()
+            phi_theta = myphi(theta,self.m)
+            phi_theta = phi_theta.clamp(-1*self.m,1)
+
+        cos_theta = cos_theta * xlen.view(-1,1)
+        phi_theta = phi_theta * xlen.view(-1,1)
+
+        return cos_theta, phi_theta
+
+
+class SphereLoss(nn.Module):
+    """"""
+    def __init__(self, gamma=0):
+        super(SphereLoss, self).__init__()
+        self.gamma = gamma
+        self.iter = 0
+        self.lambda_min = 5.0
+        self.lambda_max = 1500.0
+        self.lamb = 1500.0
+
+    def forward(self, input, target):
+        self.iter += 1
+        target = target.view(-1, 1)
+
+        index = input[0].data * 0.0
+        index.scatter_(1, target.data.view(-1, 1), 1)
+        index = Variable(index.byte())
+
+        # Tricks
+        # output(θyi) = (lambda * cos(θyi) + (-1) ** k * cos(m * θyi) - 2 * k)) / (1 + lambda)
+        #             = cos(θyi) - cos(θyi) / (1 + lambda) + Phi(θyi) / (1 + lambda)
+        self.lamb = max(self.lambda_min, self.lambda_max / (1 + 0.1 * self.iter))
+        output = input[0] * 1.0
+        output[index] -= input[0][index] * 1.0 / (1 + self.lamb)
+        output[index] += input[1][index] * 1.0 / (1 + self.lamb)
+
+        # softmax loss
+        logit = F.log_softmax(output)
+        logit = logit.gather(1, target).view(-1)
+        pt = logit.data.exp()
+
+        loss = -1 * (1 - pt) ** self.gamma * logit
+        loss = loss.mean()
+
+        return loss
+
 
 class AngularPenaltySMLoss(nn.Module):
 
@@ -13,7 +113,7 @@ class AngularPenaltySMLoss(nn.Module):
             self.m = 0.5 if not m else m
         if loss_type == 'sphereface':
             self.s = 64.0 if not s else s
-            self.m = 1.35 if not m else m
+            self.m = 4.0 if not m else m
         if loss_type == 'cosface':
             self.s = 30.0 if not s else s
             self.m = 0.4 if not m else m
@@ -31,8 +131,9 @@ class AngularPenaltySMLoss(nn.Module):
         assert torch.min(labels) >= 0
         assert torch.max(labels) < self.out_features
 
-        for W in self.fc.parameters():
-            W = F.normalize(W, p=2, dim=1)
+        for _, module in self.fc.named_modules():
+            if isinstance(module, nn.Linear):
+                module.weight.data = F.normalize(module.weight, p=2, dim=1)
 
         x = F.normalize(x, p=2, dim=1)
 
@@ -63,7 +164,6 @@ class LSoftmaxLinear(nn.Module):
         self.beta = 100
         self.beta_min = 0
         self.scale = 0.99
-        self.loss_func = torch.nn.CrossEntropyLoss()
 
         self.device = device  # gpu or cpu
 
@@ -128,27 +228,68 @@ class LSoftmaxLinear(nn.Module):
 
         logit[indexes, target] = logit_target_updated_beta
         self.beta *= self.scale
-        return self.loss_func(logit, target)
+        return logit
+
+
+def convert_label_to_similarity(normed_feature: Tensor, label: Tensor) -> Tuple[Tensor, Tensor]:
+    #print(normed_feature)
+    similarity_matrix = normed_feature @ normed_feature.transpose(1, 0)
+    label_matrix = label.unsqueeze(1) == label.unsqueeze(0)
+
+    positive_matrix = label_matrix.triu(diagonal=1)
+    negative_matrix = label_matrix.logical_not().triu(diagonal=1)
+
+    similarity_matrix = similarity_matrix.view(-1)
+    positive_matrix = positive_matrix.view(-1)
+    negative_matrix = negative_matrix.view(-1)
+    #print(similarity_matrix[positive_matrix], similarity_matrix[negative_matrix])
+    return similarity_matrix[positive_matrix], similarity_matrix[negative_matrix]
+
+
+class CircleLoss(nn.Module):
+    def __init__(self, m: float, gamma: float) -> None:
+        super(CircleLoss, self).__init__()
+        self.m = m
+        self.gamma = gamma
+        self.soft_plus = nn.Softplus()
+
+    def forward(self, sp: Tensor, sn: Tensor) -> Tensor:
+        ap = torch.clamp_min(- sp.detach() + 1 + self.m, min=0.)
+        an = torch.clamp_min(sn.detach() + self.m, min=0.)
+
+        delta_p = 1 - self.m
+        delta_n = self.m
+
+        logit_p = - ap * (sp - delta_p) * self.gamma
+        logit_n = an * (sn - delta_n) * self.gamma
+
+        loss = self.soft_plus(torch.logsumexp(logit_n, dim=0) + torch.logsumexp(logit_p, dim=0))
+
+        return loss
 
 
 class SMCNN_4_Angular(BasicModule):
 
-    def __init__(self, loss_type, margin=2):
+    def __init__(self, loss_type, margin=3):
         super().__init__()
         self.model = CQTSPPNet_seq_dilation_SPP_2()
         self.VGG_Conv1 = VGGNet(requires_grad=True, in_channels=1, show_params=False, model='vgg11')
         self.fc = nn.Linear(18944, 2)
         self.adp_max_pool = torch.nn.AdaptiveMaxPool2d((1, None))
-        self.fc1 = nn.Sequential(
-                    nn.Linear(512 + 256 + 128, 300),
-                    nn.BatchNorm1d(300))
-        self.dropout = nn.Dropout(0.7)
+        self.fc1 = nn.Linear(512 + 256 + 128, 300)
+        self.fc2 = nn.Linear(300, 10000)
+        self.dropout = nn.Dropout(0.8)
         self.relu = torch.nn.ReLU()
+        self.angular = False
         if loss_type == 'lsoftmax':
-            self.angular_loss = LSoftmaxLinear(300, 80, margin, 'cuda')
-        else:
-            self.angular_loss = AngularPenaltySMLoss(300, 80, loss_type)
-
+            self.angular_loss = LSoftmaxLinear(300, 10000, margin, 'cuda')
+            self.angular = True
+        elif loss_type == 'sphereface':
+            self.angular_loss = SphereFace(300, 10000)
+            self.angular = True
+        elif loss_type != 'circlelabel' and loss_type != 'circlepair' and loss_type != 'base':
+            self.angular_loss = AngularPenaltySMLoss(300, 10000, loss_type)
+            self.angular = True
     def metric(self, seqa, seqp, debug=False):
         T1, T2, C = seqa.shape[1], seqp.shape[1], seqp.shape[2]
         seqa, seqp = seqa.repeat(1, 1, T2), seqp.repeat(1, T1, 1)
@@ -230,13 +371,75 @@ class SMCNN_4_Angular(BasicModule):
                               self.adp_max_pool(seqn3).squeeze(1), \
                               self.adp_max_pool(seqn4).squeeze(1)
         seqn = torch.cat((seqn2, seqn3, seqn4), 1)
-        seqa, seqp, seqn = self.fc1(seqa), self.fc1(seqp), self.fc1(seqn)
-        seqa_d, seqp_d, seqn_d = self.dropout(seqa), self.dropout(seqp), self.dropout(seqn)
-        loss = self.angular_loss(seqa, targeta) + \
-               self.angular_loss(seqp, targetp) + \
-               self.angular_loss(seqn, targetn)
-
-        return torch.cat((p_ap, p_an), dim=0), seqa, seqp, seqn, loss
+        seqa1, seqp1, seqn1 = self.fc1(seqa), self.fc1(seqp), self.fc1(seqn)
+        seqa_d, seqp_d, seqn_d = self.dropout(seqa1), self.dropout(seqp1), self.dropout(seqn1)
 
 
+        return torch.cat((p_ap, p_an), dim=0), seqa1, seqp1, seqn1,\
+                self.fc2(seqa_d), self.fc2(seqp_d), self.fc2(seqn_d), seqa_d, seqp_d, seqn_d
 
+
+class MNISTNet(nn.Module):
+    def __init__(self, margin, device):
+        super(MNISTNet, self).__init__()
+        self.margin = margin
+        self.device = device
+
+        self.conv_0 = nn.Sequential(
+            nn.BatchNorm2d(1),
+            nn.Conv2d(1, 64, 3),
+            nn.PReLU(),
+            nn.BatchNorm2d(64)
+        )
+        self.conv_1 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(2, 2)
+        )
+        self.conv_2 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(2, 2)
+        )
+        self.conv_3 = nn.Sequential(
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.PReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(2, 2)
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(576, 256),
+            nn.BatchNorm1d(256)
+        )
+
+        def forward(self, x, target=None):
+            x = self.conv_0(x)
+            x = self.conv_1(x)
+            x = self.conv_2(x)
+            x = self.conv_3(x)
+            x = x.view(-1, 576)
+            x = self.fc(x)
+            return x

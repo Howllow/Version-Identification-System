@@ -25,7 +25,7 @@ class BasicModule(torch.nn.Module):
         保存模型，默认使用“模型名字+时间”作为文件名
         """
 
-        prefix = '/S1/DAA/jcy/Ijcai_project/check_points/' + self.model_name + name + '/'
+        prefix = './check_points/' + self.model_name + name + '/'
         if not os.path.isdir(prefix):
             os.mkdir(prefix)
         name = time.strftime(prefix + '%m%d_%H:%M:%S.pth')
@@ -40,5 +40,5 @@ class BasicModule(torch.nn.Module):
         return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
     
     def load_latest(self, notes):
-        path = '/S1/DAA/jcy/Ijcai_project/check_points/' + self.model_name + notes + '/latest.pth'
+        path = './check_points/' + self.model_name + notes + '/latest.pth'
         self.load_state_dict(torch.load(path))

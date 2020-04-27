@@ -40,7 +40,7 @@ def cal_similar(music_list):
     ft2 = ft2.T
     dis2d = np.matmul(ft1, ft2)
 
-    return str(round(dis2d[0][0] * 100, 2))
+    return str(-round(dis2d[0][0] * 100, 2))
 
 
 def get_similar(cqt, recal):

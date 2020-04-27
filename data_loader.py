@@ -234,17 +234,17 @@ class CQT(Dataset):
         self.mode = mode
         if mode == 'train':
             # filepath='hpcp/hpcp_train_list.txt'
-            filepath = 'hpcp/SHS100K-TRAIN_6'
+            filepath = 'data/youtube_train_0.01.txt'
             # filepath='hpcp/train_list_6.txt'
             # self.new_map=np.load('hpcp/new_map.npy')
         elif mode == 'val':
             # filepath='hpcp/val_list.txt'
-            filepath = 'hpcp/SHS100K-VAL'
+            filepath = 'data/youtube_val_1.txt'
         elif mode == 'songs350':
             self.indir = 'data/you350_cqt_npy/'
             filepath = 'hpcp/you350_list.txt'
         elif mode == 'test':
-            filepath = 'hpcp/SHS100K-TEST'
+            filepath = 'data/youtube_test_1.txt'
             # filepath='hpcp/test_list.txt'
         elif mode == 'songs80':
             self.indir = 'data/covers80_cqt_npy/'
@@ -365,7 +365,7 @@ class get_triloader(Dataset):
     def __init__(self, out_length=None):
         self.out_length = out_length
         self.indir = 'data/youtube_cqt_npy/'
-        filepath = 'hpcp/SHS100K-TRAIN_6'
+        filepath = 'data/youtube_train_0.04.txt'
         self.file_list = []
         self.dic = {}
         with open(filepath, 'r') as fp:
