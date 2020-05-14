@@ -10,7 +10,7 @@ class DefaultConfig(object):
     feature = 'cqt'
     load_model_path = None# 加载预训练的模型的路径，为None代表不加载
     load_latest = False
-    batch_size = 25  # batch size
+    batch_size = 20  # batch size
     use_gpu = True  # user GPU or not
     num_workers = 4  # how many workers for loading data
     # print_freq = 600  # print info every N batch
@@ -20,7 +20,7 @@ class DefaultConfig(object):
     data_length = 400
     max_epoch = 5000
     lr = 0.001  # initial learning rate
-    lr_decay = 0.8  # when val_loss increase, lr = lr*lr_decay
+    lr_decay = 0.5  # when val_loss increase, lr = lr*lr_decay
     weight_decay = 1e-5  # 损失函数
     notes = None
     GPU = 0

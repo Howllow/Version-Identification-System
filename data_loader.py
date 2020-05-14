@@ -234,7 +234,7 @@ class CQT(Dataset):
         self.mode = mode
         if mode == 'train':
             # filepath='hpcp/hpcp_train_list.txt'
-            filepath = 'data/youtube_train_0.01.txt'
+            filepath = 'data/youtube_train_0.04.txt'
             # filepath='hpcp/train_list_6.txt'
             # self.new_map=np.load('hpcp/new_map.npy')
         elif mode == 'val':

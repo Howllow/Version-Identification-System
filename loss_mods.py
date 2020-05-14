@@ -80,7 +80,7 @@ class SphereLoss(nn.Module):
 
         index = input[0].data * 0.0
         index.scatter_(1, target.data.view(-1, 1), 1)
-        index = Variable(index.byte())
+        index = Variable(index.byte().bool())
 
         # Tricks
         # output(θyi) = (lambda * cos(θyi) + (-1) ** k * cos(m * θyi) - 2 * k)) / (1 + lambda)
@@ -99,6 +99,95 @@ class SphereLoss(nn.Module):
         loss = loss.mean()
 
         return loss
+
+
+class ArcMarginProduct(nn.Module):
+    r"""Implement of large margin arc distance: :
+        Args:
+            in_features: size of each input sample
+            out_features: size of each output sample
+            s: norm of input feature
+            m: margin
+            cos(theta + m)
+        """
+    r"""Implement of large margin arc distance: :
+        Args:
+            in_features: size of each input sample
+            out_features: size of each output sample
+            s: norm of input feature
+            m: margin
+            cos(theta + m)
+        """
+    def __init__(self, in_features, out_features, s=30.0, m=0.50, easy_margin=False):
+        super(ArcMarginProduct, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.weight = Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+        self.easy_margin = easy_margin
+        self.cos_m = math.cos(m)
+        self.sin_m = math.sin(m)
+        self.th = math.cos(math.pi - m)
+        self.mm = math.sin(math.pi - m) * m
+
+    def forward(self, input, label):
+        # --------------------------- cos(theta) & phi(theta) ---------------------------
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        sine = torch.sqrt((1.0 - torch.pow(cosine, 2)).clamp(0, 1))
+        phi = cosine * self.cos_m - sine * self.sin_m
+        if self.easy_margin:
+            phi = torch.where(cosine > 0, phi, cosine)
+        else:
+            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
+        # --------------------------- convert label to one-hot ---------------------------
+        # one_hot = torch.zeros(cosine.size(), requires_grad=True, device='cuda')
+        one_hot = torch.zeros(cosine.size(), device='cuda')
+        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
+        # -------------torch.where(out_i = {x_i if condition_i else y_i) -------------
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)  # you can use torch.where if your torch.__version__ is 0.4
+        output *= self.s
+        # print(output)
+
+        return output
+
+
+class AddMarginProduct(nn.Module):
+    r"""Implement of large margin cosine distance: :
+    Args:
+        in_features: size of each input sample
+        out_features: size of each output sample
+        s: norm of input feature
+        m: margin
+        cos(theta) - m
+    """
+
+    def __init__(self, in_features, out_features, s=30.0, m=0.40):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.s = s
+        self.m = m
+        self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, input, label):
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        phi = cosine - self.m
+        output = cosine * 1.0  # make backward works
+        batch_size = len(output)
+        output[range(batch_size), label] = phi[range(batch_size), label]
+        return output * self.s
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' \
+               + 'in_features=' + str(self.in_features) \
+               + ', out_features=' + str(self.out_features) \
+               + ', s=' + str(self.s) \
+               + ', m=' + str(self.m) + ')'
+
 
 
 class AngularPenaltySMLoss(nn.Module):
@@ -270,7 +359,7 @@ class CircleLoss(nn.Module):
 
 class SMCNN_4_Angular(BasicModule):
 
-    def __init__(self, loss_type, margin=3):
+    def __init__(self):
         super().__init__()
         self.model = CQTSPPNet_seq_dilation_SPP_2()
         self.VGG_Conv1 = VGGNet(requires_grad=True, in_channels=1, show_params=False, model='vgg11')
@@ -280,16 +369,7 @@ class SMCNN_4_Angular(BasicModule):
         self.fc2 = nn.Linear(300, 10000)
         self.dropout = nn.Dropout(0.8)
         self.relu = torch.nn.ReLU()
-        self.angular = False
-        if loss_type == 'lsoftmax':
-            self.angular_loss = LSoftmaxLinear(300, 10000, margin, 'cuda')
-            self.angular = True
-        elif loss_type == 'sphereface':
-            self.angular_loss = SphereFace(300, 10000)
-            self.angular = True
-        elif loss_type != 'circlelabel' and loss_type != 'circlepair' and loss_type != 'base':
-            self.angular_loss = AngularPenaltySMLoss(300, 10000, loss_type)
-            self.angular = True
+
     def metric(self, seqa, seqp, debug=False):
         T1, T2, C = seqa.shape[1], seqp.shape[1], seqp.shape[2]
         seqa, seqp = seqa.repeat(1, 1, T2), seqp.repeat(1, T1, 1)
@@ -374,72 +454,44 @@ class SMCNN_4_Angular(BasicModule):
         seqa1, seqp1, seqn1 = self.fc1(seqa), self.fc1(seqp), self.fc1(seqn)
         seqa_d, seqp_d, seqn_d = self.dropout(seqa1), self.dropout(seqp1), self.dropout(seqn1)
 
-
         return torch.cat((p_ap, p_an), dim=0), seqa1, seqp1, seqn1,\
-                self.fc2(seqa_d), self.fc2(seqp_d), self.fc2(seqn_d), seqa_d, seqp_d, seqn_d
+               self.fc2(seqa_d), self.fc2(seqp_d), self.fc2(seqn_d), \
+               seqa_d, seqp_d, seqn_d
 
 
 class MNISTNet(nn.Module):
-    def __init__(self, margin, device):
+    def __init__(self):
         super(MNISTNet, self).__init__()
-        self.margin = margin
-        self.device = device
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.BatchNorm2d(32))
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.BatchNorm2d(64))
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer4 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.BatchNorm2d(256))
+        self.layer5 = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
+            nn.ReLU(),
+            nn.BatchNorm2d(512),
+            nn.MaxPool2d(kernel_size=8, stride=1))
+        self.fc_projection = nn.Linear(512, 3)
 
-        self.conv_0 = nn.Sequential(
-            nn.BatchNorm2d(1),
-            nn.Conv2d(1, 64, 3),
-            nn.PReLU(),
-            nn.BatchNorm2d(64)
-        )
-        self.conv_1 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.MaxPool2d(2, 2)
-        )
-        self.conv_2 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.MaxPool2d(2, 2)
-        )
-        self.conv_3 = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.PReLU(),
-            nn.BatchNorm2d(64),
-            nn.MaxPool2d(2, 2)
-        )
-        self.fc = nn.Sequential(
-            nn.Linear(576, 256),
-            nn.BatchNorm1d(256)
-        )
-
-        def forward(self, x, target=None):
-            x = self.conv_0(x)
-            x = self.conv_1(x)
-            x = self.conv_2(x)
-            x = self.conv_3(x)
-            x = x.view(-1, 576)
-            x = self.fc(x)
-            return x
+    def forward(self, x, embed=False):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.fc_projection(x)
+        return x
